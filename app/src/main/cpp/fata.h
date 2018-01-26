@@ -15,7 +15,7 @@ extern "C" {
 
 #define logging(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "fata", __VA_ARGS__))
 
-int hello_world(const char *);
+int hello_world(const char *, const char *);
 
 
 #ifdef __cplusplus

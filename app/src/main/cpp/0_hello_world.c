@@ -20,11 +20,11 @@
 #include "fata.h"
 
 // decode packets into frames
-static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFrame *pFrame);
+static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFrame *pFrame, const char *output);
 // save a frame into a .pgm file
 static void save_gray_frame(unsigned char *buf, int wrap, int xsize, int ysize, char *filename);
 
-int hello_world(const char *filename)
+int hello_world(const char *input, const char *output)
 {
   logging("initializing all the containers, codecs and protocols.");
 
@@ -41,7 +41,7 @@ int hello_world(const char *filename)
     return -1;
   }
 
-  logging("opening the input file (%s) and loading format (container) header", filename);
+  logging("opening the input file (%s) and loading format (container) header", input);
   // Open the file and read its header. The codecs are not opened.
   // The function arguments are:
   // AVFormatContext (the component we allocated memory for),
@@ -49,7 +49,7 @@ int hello_world(const char *filename)
   // AVInputFormat (if you pass NULL it'll do the auto detect)
   // and AVDictionary (which are options to the demuxer)
   // http://ffmpeg.org/doxygen/trunk/group__lavf__decoding.html#ga31d601155e9035d5b0e7efedc894ee49
-  if (avformat_open_input(&pFormatContext, filename, NULL, NULL) != 0) {
+  if (avformat_open_input(&pFormatContext, input, NULL, NULL) != 0) {
     logging("ERROR could not open the file");
     return -1;
   }
@@ -168,7 +168,7 @@ int hello_world(const char *filename)
     // if it's the video stream
     if (pPacket->stream_index == video_stream_index) {
     logging("AVPacket->pts %" PRId64, pPacket->pts);
-      response = decode_packet(pPacket, pCodecContext, pFrame);
+      response = decode_packet(pPacket, pCodecContext, pFrame, output);
       if (response < 0)
         break;
       // stop it, otherwise we'll be saving hundreds of frames
@@ -188,7 +188,7 @@ int hello_world(const char *filename)
   return 0;
 }
 
-static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFrame *pFrame)
+static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFrame *pFrame, const char *output)
 {
   // Supply raw packet data as input to a decoder
   // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga58bc4bf1e0ac59e27362597e467efff3
@@ -223,7 +223,7 @@ static int decode_packet(AVPacket *pPacket, AVCodecContext *pCodecContext, AVFra
       );
 
       char frame_filename[1024];
-      snprintf(frame_filename, sizeof(frame_filename), "/storage/emulated/0/fata/%s-%d.pgm", "frame", pCodecContext->frame_number);
+      snprintf(frame_filename, sizeof(frame_filename), "%s/%s-%d.pgm", output, "frame", pCodecContext->frame_number);
       // save a grayscale frame into a .pgm file
       save_gray_frame(pFrame->data[0], pFrame->linesize[0], pFrame->width, pFrame->height, frame_filename);
 
