@@ -2,6 +2,7 @@ package com.bakaoh.fata;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -31,10 +32,18 @@ public class MainActivity extends AppCompatActivity {
                 download(url, outputFile);
             }
         });
-        TextView tv = findViewById(R.id.sample_text);
-        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
-        String output = Environment.getExternalStorageDirectory() + "/fata";
-        tv.setText("Result: " + chapter0(input, output));
+        Button btnTutorial02 = findViewById(R.id.tutorial02_btn);
+        btnTutorial02.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(new Intent(MainActivity.this, Tutorial02Activity.class));
+            }
+        });
+        
+//        TextView tv = findViewById(R.id.sample_text);
+//        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
+//        String output = Environment.getExternalStorageDirectory() + "/fata";
+//        tv.setText("Result: " + chapter0(input, output));
     }
 
     private void download(String url, String outputFile) {

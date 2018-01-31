@@ -12,6 +12,13 @@
         android:layout_height="wrap_content"
         android:text="Download test video"/>
 
+    <Button
+        android:id="@+id/tutorial02_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tutorial 02: Outputting to the Screen"
+        app:layout_constraintTop_toBottomOf="@id/download_btn"/>
+
     <TextView
         android:id="@+id/sample_text"
         android:layout_width="wrap_content"
