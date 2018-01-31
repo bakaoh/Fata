@@ -1,21 +1,36 @@
 cmake_minimum_required(VERSION 3.4.1)
 
-include_directories("src/main/jniLibs/${ANDROID_ABI}/include/")
+set(distribution_DIR ${CMAKE_SOURCE_DIR}/../distribution)
 
-add_library( native-lib SHARED
-             src/main/cpp/0_hello_world.c
-             src/main/cpp/native-lib.cpp )
+include_directories("${distribution_DIR}/${ANDROID_ABI}/include/" "${distribution_DIR}/libsdl/include/")
+
+add_library( libSDL2 SHARED IMPORTED )
+set_target_properties ( libSDL2 PROPERTIES IMPORTED_LOCATION
+                        ${distribution_DIR}/libsdl/lib/${ANDROID_ABI}/libSDL2.so )
 
 link_libraries("-Wl,--no-warn-shared-textrel")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
+
+add_library( native-lib SHARED
+             src/main/cpp/0_hello_world.c
+             src/main/cpp/testgles.c
+             src/main/cpp/native-lib.cpp )
+
+target_include_directories(native-lib PRIVATE
+                           ${distribution_DIR}/libsdl/include/)
+
 target_link_libraries( native-lib
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libavformat.a
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libavcodec.a
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libswscale.a
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libswresample.a
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libavutil.a
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libavdevice.a
-                       ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}/lib/libavfilter.a
+                       libSDL2
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libavformat.a
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libavcodec.a
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libswscale.a
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libswresample.a
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libavutil.a
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libavdevice.a
+                       ${distribution_DIR}/${ANDROID_ABI}/lib/libavfilter.a
                        m
                        z
+                       GLESv1_CM
+                       GLESv2
                        log )
