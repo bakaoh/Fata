@@ -26,6 +26,13 @@
         android:text="Tutorial 03: Playing Sound"
         app:layout_constraintTop_toBottomOf="@id/tutorial02_btn"/>
 
+    <Button
+        android:id="@+id/tutorial04_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tutorial 04: Spawning Threads"
+        app:layout_constraintTop_toBottomOf="@id/tutorial03_btn"/>
+
     <TextView
         android:id="@+id/sample_text"
         android:layout_width="wrap_content"

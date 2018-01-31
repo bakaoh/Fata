@@ -12,7 +12,7 @@ import android.widget.Button;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
-    private Button btnDownload, btnTutorial02, btnTutorial03;
+    private Button btnDownload, btnTutorial02, btnTutorial03, btnTutorial04;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -25,6 +25,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnTutorial02.setOnClickListener(this);
         btnTutorial03 = findViewById(R.id.tutorial03_btn);
         btnTutorial03.setOnClickListener(this);
+        btnTutorial04 = findViewById(R.id.tutorial04_btn);
+        btnTutorial04.setOnClickListener(this);
 
 //        TextView tv = findViewById(R.id.sample_text);
 //        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
