@@ -23,6 +23,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".Tutorial02Activity"/>
+        <activity android:name=".Tutorial03Activity"/>
     </application>
 
 </manifest>

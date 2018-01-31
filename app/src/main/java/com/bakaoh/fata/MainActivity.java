@@ -39,7 +39,13 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(MainActivity.this, Tutorial02Activity.class));
             }
         });
-        
+        Button btnTutorial03 = findViewById(R.id.tutorial03_btn);
+        btnTutorial03.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(new Intent(MainActivity.this, Tutorial03Activity.class));
+            }
+        });
 //        TextView tv = findViewById(R.id.sample_text);
 //        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
 //        String output = Environment.getExternalStorageDirectory() + "/fata";
