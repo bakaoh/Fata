@@ -22,8 +22,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".Tutorial02Activity"/>
-        <activity android:name=".Tutorial03Activity"/>
+        <activity android:name=".TutorialActivity"/>
     </application>
 
 </manifest>

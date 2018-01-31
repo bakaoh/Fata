@@ -2,7 +2,6 @@ package com.bakaoh.fata;
 
 import android.app.DownloadManager;
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -10,42 +9,23 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
-import android.widget.TextView;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
-    static {
-        System.loadLibrary("native-lib");
-    }
+    private Button btnDownload, btnTutorial02, btnTutorial03;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        Button btnDownload = findViewById(R.id.download_btn);
-        btnDownload.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                String url = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_60fps_normal.mp4";
-                String outputFile = "bunny_1080p_60fps.mp4";
-                download(url, outputFile);
-            }
-        });
-        Button btnTutorial02 = findViewById(R.id.tutorial02_btn);
-        btnTutorial02.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                startActivity(new Intent(MainActivity.this, Tutorial02Activity.class));
-            }
-        });
-        Button btnTutorial03 = findViewById(R.id.tutorial03_btn);
-        btnTutorial03.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                startActivity(new Intent(MainActivity.this, Tutorial03Activity.class));
-            }
-        });
+        btnDownload = findViewById(R.id.download_btn);
+        btnDownload.setOnClickListener(this);
+        btnTutorial02 = findViewById(R.id.tutorial02_btn);
+        btnTutorial02.setOnClickListener(this);
+        btnTutorial03 = findViewById(R.id.tutorial03_btn);
+        btnTutorial03.setOnClickListener(this);
+
 //        TextView tv = findViewById(R.id.sample_text);
 //        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
 //        String output = Environment.getExternalStorageDirectory() + "/fata";
@@ -66,6 +46,23 @@ public class MainActivity extends AppCompatActivity {
         // get download service and enqueue file
         DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
         manager.enqueue(request);
+    }
+
+    @Override
+    public void onClick(View view) {
+        if (view == btnDownload) {
+            String url = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_60fps_normal.mp4";
+            String outputFile = "bunny_1080p_60fps.mp4";
+            download(url, outputFile);
+        } else if (view == btnTutorial02) {
+            startActivity(TutorialActivity.buildIntent(this, "tutorial02"));
+        } else if (view == btnTutorial03) {
+            startActivity(TutorialActivity.buildIntent(this, "tutorial03"));
+        }
+    }
+
+    static {
+        System.loadLibrary("native-lib");
     }
 
     /**
