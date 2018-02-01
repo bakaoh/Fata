@@ -60,6 +60,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             startActivity(TutorialActivity.buildIntent(this, "tutorial02"));
         } else if (view == btnTutorial03) {
             startActivity(TutorialActivity.buildIntent(this, "tutorial03"));
+        } else if (view == btnTutorial04) {
+            startActivity(TutorialActivity.buildIntent(this, "tutorial04"));
         }
     }
 

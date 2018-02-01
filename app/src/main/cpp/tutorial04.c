@@ -36,6 +36,9 @@
 #include <assert.h>
 #include <math.h>
 
+#include <jni.h>
+#include <android/log.h>
+
 // compatibility with newer API
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,28,1)
 #define av_frame_alloc avcodec_alloc_frame
@@ -51,7 +54,8 @@
 #define FF_REFRESH_EVENT (SDL_USEREVENT)
 #define FF_QUIT_EVENT (SDL_USEREVENT + 1)
 
-#define VIDEO_PICTURE_QUEUE_SIZE 1
+#define VIDEO_PICTURE_QUEUE_SIZE 10
+#define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "TUT04", __VA_ARGS__))
 
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
@@ -63,7 +67,9 @@ typedef struct PacketQueue {
 
 
 typedef struct VideoPicture {
-    SDL_Overlay *bmp;
+    Uint8 *yPlane, *uPlane, *vPlane;
+    size_t yPlaneSz, uvPlaneSz;
+    int uvPitch;
     int width, height; /* source height & width */
     int allocated;
 } VideoPicture;
@@ -99,7 +105,9 @@ typedef struct VideoState {
     int             quit;
 } VideoState;
 
-SDL_Surface     *screen;
+SDL_Texture *texture;
+SDL_Window *screen;
+SDL_Renderer *renderer;
 SDL_mutex       *screen_mutex;
 
 /* Since we only have one decoding thread, the Big Struct
@@ -137,8 +145,7 @@ int packet_queue_put(PacketQueue *q, AVPacket *pkt) {
     SDL_UnlockMutex(q->mutex);
     return 0;
 }
-static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
-{
+static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block) {
     AVPacketList *pkt1;
     int ret;
 
@@ -271,7 +278,7 @@ void video_display(VideoState *is) {
     int i;
 
     vp = &is->pictq[is->pictq_rindex];
-    if(vp->bmp) {
+    if(texture) {
         if(is->video_ctx->sample_aspect_ratio.num == 0) {
             aspect_ratio = 0;
         } else {
@@ -282,22 +289,30 @@ void video_display(VideoState *is) {
             aspect_ratio = (float)is->video_ctx->width /
                            (float)is->video_ctx->height;
         }
-        h = screen->h;
+        h = 1080;
         w = ((int)rint(h * aspect_ratio)) & -3;
-        if(w > screen->w) {
-            w = screen->w;
+        if(w > 1920) {
+            w = 1920;
             h = ((int)rint(w / aspect_ratio)) & -3;
         }
-        x = (screen->w - w) / 2;
-        y = (screen->h - h) / 2;
+        x = (1920 - w) / 2;
+        y = (1080 - h) / 2;
 
-        rect.x = x;
-        rect.y = y;
-        rect.w = w;
-        rect.h = h;
-        SDL_LockMutex(screen_mutex);
-        SDL_DisplayYUVOverlay(vp->bmp, &rect);
-        SDL_UnlockMutex(screen_mutex);
+        SDL_UpdateYUVTexture(
+                texture,
+                NULL,
+                vp->yPlane,
+                is->video_ctx->width,
+                vp->uPlane,
+                vp->uvPitch,
+                vp->vPlane,
+                vp->uvPitch
+        );
+
+        SDL_RenderClear(renderer);
+        rect.x = x;rect.y = y;rect.w = w;rect.h = h;
+        int r = SDL_RenderCopy(renderer, texture, NULL, &rect);
+        SDL_RenderPresent(renderer);
 
     }
 }
@@ -344,22 +359,29 @@ void alloc_picture(void *userdata) {
     VideoPicture *vp;
 
     vp = &is->pictq[is->pictq_windex];
-    if(vp->bmp) {
+    if(vp->allocated) {
         // we already have one make another, bigger/smaller
-        SDL_FreeYUVOverlay(vp->bmp);
+        free(vp->yPlane);
+        free(vp->uPlane);
+        free(vp->vPlane);
     }
     // Allocate a place to put our YUV image on that screen
-    SDL_LockMutex(screen_mutex);
-    vp->bmp = SDL_CreateYUVOverlay(is->video_ctx->width,
-                                   is->video_ctx->height,
-                                   SDL_YV12_OVERLAY,
-                                   screen);
-    SDL_UnlockMutex(screen_mutex);
-
     vp->width = is->video_ctx->width;
     vp->height = is->video_ctx->height;
     vp->allocated = 1;
 
+    // set up YV12 pixel array (12 bits per pixel)
+    vp->yPlaneSz = is->video_ctx->width * is->video_ctx->height;
+    vp->uvPlaneSz = is->video_ctx->width * is->video_ctx->height / 4;
+    vp->yPlane = (Uint8*)malloc(vp->yPlaneSz);
+    vp->uPlane = (Uint8*)malloc(vp->uvPlaneSz);
+    vp->vPlane = (Uint8*)malloc(vp->uvPlaneSz);
+    if (!vp->yPlane || !vp->uPlane || !vp->vPlane) {
+        LOGE("Could not allocate pixel buffers - exiting\n");
+        exit(1);
+    }
+
+    vp->uvPitch = is->video_ctx->width / 2;
 }
 
 int queue_picture(VideoState *is, AVFrame *pFrame) {
@@ -383,12 +405,7 @@ int queue_picture(VideoState *is, AVFrame *pFrame) {
     vp = &is->pictq[is->pictq_windex];
 
     /* allocate or resize the buffer! */
-    if(!vp->bmp ||
-       vp->width != is->video_ctx->width ||
-       vp->height != is->video_ctx->height) {
-        SDL_Event event;
-
-        vp->allocated = 0;
+    if(vp->width != is->video_ctx->width || vp->height != is->video_ctx->height) {
         alloc_picture(is);
         if(is->quit) {
             return -1;
@@ -397,27 +414,26 @@ int queue_picture(VideoState *is, AVFrame *pFrame) {
 
     /* We have a place to put our picture on the queue */
 
-    if(vp->bmp) {
+    if(texture) {
 
-        SDL_LockYUVOverlay(vp->bmp);
 
-        dst_pix_fmt = PIX_FMT_YUV420P;
+
+        dst_pix_fmt = AV_PIX_FMT_YUV420P;
         /* point pict at the queue */
 
-        pict.data[0] = vp->bmp->pixels[0];
-        pict.data[1] = vp->bmp->pixels[2];
-        pict.data[2] = vp->bmp->pixels[1];
+        pict.data[0] = vp->yPlane;
+        pict.data[1] = vp->uPlane;
+        pict.data[2] = vp->vPlane;
+        pict.linesize[0] = is->video_ctx->width;
+        pict.linesize[1] = vp->uvPitch;
+        pict.linesize[2] = vp->uvPitch;
 
-        pict.linesize[0] = vp->bmp->pitches[0];
-        pict.linesize[1] = vp->bmp->pitches[2];
-        pict.linesize[2] = vp->bmp->pitches[1];
 
         // Convert the image into YUV format that SDL uses
         sws_scale(is->sws_ctx, (uint8_t const * const *)pFrame->data,
                   pFrame->linesize, 0, is->video_ctx->height,
                   pict.data, pict.linesize);
 
-        SDL_UnlockYUVOverlay(vp->bmp);
         /* now we inform our display thread that we have a pic ready */
         if(++is->pictq_windex == VIDEO_PICTURE_QUEUE_SIZE) {
             is->pictq_windex = 0;
@@ -469,13 +485,13 @@ int stream_component_open(VideoState *is, int stream_index) {
 
     codec = avcodec_find_decoder(pFormatCtx->streams[stream_index]->codec->codec_id);
     if(!codec) {
-        fprintf(stderr, "Unsupported codec!\n");
+        LOGE("Unsupported codec!\n");
         return -1;
     }
 
     codecCtx = avcodec_alloc_context3(codec);
     if(avcodec_copy_context(codecCtx, pFormatCtx->streams[stream_index]->codec) != 0) {
-        fprintf(stderr, "Couldn't copy codec context");
+        LOGE("Couldn't copy codec context");
         return -1; // Error copying codec context
     }
 
@@ -483,20 +499,20 @@ int stream_component_open(VideoState *is, int stream_index) {
     if(codecCtx->codec_type == AVMEDIA_TYPE_AUDIO) {
         // Set audio settings from codec info
         wanted_spec.freq = codecCtx->sample_rate;
-        wanted_spec.format = AUDIO_S16SYS;
+        wanted_spec.format = AUDIO_U8;
         wanted_spec.channels = codecCtx->channels;
         wanted_spec.silence = 0;
-        wanted_spec.samples = SDL_AUDIO_BUFFER_SIZE;
+        wanted_spec.samples = 4096;
         wanted_spec.callback = audio_callback;
         wanted_spec.userdata = is;
 
         if(SDL_OpenAudio(&wanted_spec, &spec) < 0) {
-            fprintf(stderr, "SDL_OpenAudio: %s\n", SDL_GetError());
+            LOGE("SDL_OpenAudio: %s\n", SDL_GetError());
             return -1;
         }
     }
     if(avcodec_open2(codecCtx, codec, NULL) < 0) {
-        fprintf(stderr, "Unsupported codec!\n");
+        LOGE("Unsupported codec!\n");
         return -1;
     }
 
@@ -576,7 +592,7 @@ int decode_thread(void *arg) {
     }
 
     if(is->videoStream < 0 || is->audioStream < 0) {
-        fprintf(stderr, "%s: could not open codecs\n", is->filename);
+        LOGE("%s: could not open codecs\n", is->filename);
         goto fail;
     }
 
@@ -624,7 +640,7 @@ int decode_thread(void *arg) {
     return 0;
 }
 
-int main(int argc, char *argv[]) {
+extern C_LINKAGE DECLSPEC int tutorial04(int argc, char *argv[]) {
 
     SDL_Event       event;
 
@@ -633,25 +649,44 @@ int main(int argc, char *argv[]) {
     is = av_mallocz(sizeof(VideoState));
 
     if(argc < 2) {
-        fprintf(stderr, "Usage: test <file>\n");
+        LOGE("Usage: test <file>\n");
         exit(1);
     }
     // Register all formats and codecs
     av_register_all();
 
     if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {
-        fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());
+        LOGE("Could not initialize SDL - %s\n", SDL_GetError());
         exit(1);
     }
 
     // Make a screen to put our video
-#ifndef __DARWIN__
-    screen = SDL_SetVideoMode(640, 480, 0, 0);
-#else
-    screen = SDL_SetVideoMode(640, 480, 24, 0);
-#endif
-    if(!screen) {
-        fprintf(stderr, "SDL: could not set video mode - exiting\n");
+    screen = SDL_CreateWindow(
+                "FFmpeg Tutorial",
+                SDL_WINDOWPOS_UNDEFINED,
+                SDL_WINDOWPOS_UNDEFINED,
+                1920, 1080,
+                SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
+        );
+    if (!screen) {
+        LOGE("SDL: could not create window - exiting\n");
+        exit(1);
+    }
+
+    renderer = SDL_CreateRenderer(screen, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer) {
+        LOGE("SDL: could not create renderer - exiting\n");
+        exit(1);
+    }
+
+    texture = SDL_CreateTexture(
+            renderer,
+            SDL_PIXELFORMAT_YV12,
+            SDL_TEXTUREACCESS_STREAMING,
+            1920, 1080
+    );
+    if (!texture) {
+        fprintf(stderr, "SDL: could not create texture - exiting\n");
         exit(1);
     }
 
@@ -675,6 +710,9 @@ int main(int argc, char *argv[]) {
         switch(event.type) {
             case FF_QUIT_EVENT:
             case SDL_QUIT:
+                SDL_DestroyTexture(texture);
+                SDL_DestroyRenderer(renderer);
+                SDL_DestroyWindow(screen);
                 is->quit = 1;
                 SDL_Quit();
                 return 0;
@@ -687,5 +725,4 @@ int main(int argc, char *argv[]) {
         }
     }
     return 0;
-
 }
