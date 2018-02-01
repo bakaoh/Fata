@@ -1,6 +1,5 @@
-// tutorial04.c
-// A pedagogical video player that will stream through every video frame as fast as it can,
-// and play audio (out of sync).
+// tutorial05.c
+// A pedagogical video player that really works!
 //
 // Code based on FFplay, Copyright (c) 2003 Fabrice Bellard,
 // and a tutorial by Martin Bohme (boehme@inb.uni-luebeckREMOVETHIS.de)
@@ -11,6 +10,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 #include <libavutil/avstring.h>
+#include <libavutil/time.h>
 
 #include <SDL.h>
 #include <SDL_thread.h>
@@ -30,14 +30,17 @@ extern "C" {
 #define MAX_AUDIOQ_SIZE (5 * 16 * 1024)
 #define MAX_VIDEOQ_SIZE (5 * 256 * 1024)
 
+#define AV_SYNC_THRESHOLD 0.01
+#define AV_NOSYNC_THRESHOLD 10.0
+
 #define FF_REFRESH_EVENT (SDL_USEREVENT)
 #define FF_QUIT_EVENT (SDL_USEREVENT + 1)
 
 #define VIDEO_PICTURE_QUEUE_SIZE 1
 
-#define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "TUT04", __VA_ARGS__))
+#define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "TUT05", __VA_ARGS__))
 
-namespace Tutorial04 {
+namespace Tutorial05 {
 
     typedef struct PacketQueue {
         AVPacketList *first_pkt, *last_pkt;
@@ -53,12 +56,14 @@ namespace Tutorial04 {
         int uvPitch;
         int width, height; /* source height & width */
         int allocated;
+        double pts;
     } VideoPicture;
 
     typedef struct VideoState {
 
         AVFormatContext *pFormatCtx;
         int videoStream, audioStream;
+        double audio_clock;
         AVStream *audio_st;
         AVCodecContext *audio_ctx;
         PacketQueue audioq;
@@ -69,6 +74,11 @@ namespace Tutorial04 {
         AVPacket audio_pkt;
         uint8_t *audio_pkt_data;
         int audio_pkt_size;
+        int audio_hw_buf_size;
+        double frame_timer;
+        double frame_last_pts;
+        double frame_last_delay;
+        double video_clock; ///<pts of last decoded frame / predicted pts of next decoded frame
         AVStream *video_st;
         AVCodecContext *video_ctx;
         PacketQueue videoq;
@@ -91,7 +101,7 @@ namespace Tutorial04 {
     SDL_Renderer *renderer;
     SDL_mutex *screen_mutex;
 
-    /* Since we only have one decoding thread, the Big Struct
+/* Since we only have one decoding thread, the Big Struct
    can be global in case we need it. */
     VideoState *global_video_state;
 
@@ -163,10 +173,29 @@ namespace Tutorial04 {
         return ret;
     }
 
-    int audio_decode_frame(VideoState *is, uint8_t *audio_buf, int buf_size) {
+    double get_audio_clock(VideoState *is) {
+        double pts;
+        int hw_buf_size, bytes_per_sec, n;
+
+        pts = is->audio_clock; /* maintained in the audio thread */
+        hw_buf_size = is->audio_buf_size - is->audio_buf_index;
+        bytes_per_sec = 0;
+        n = is->audio_ctx->channels * 2;
+        if (is->audio_st) {
+            bytes_per_sec = is->audio_ctx->sample_rate * n;
+        }
+        if (bytes_per_sec) {
+            pts -= (double) hw_buf_size / bytes_per_sec;
+        }
+        return pts;
+    }
+
+    int audio_decode_frame(VideoState *is, uint8_t *audio_buf, int buf_size, double *pts_ptr) {
 
         int len1, data_size = 0;
         AVPacket *pkt = &is->audio_pkt;
+        double pts;
+        int n;
 
         for (;;) {
             while (is->audio_pkt_size > 0) {
@@ -193,6 +222,11 @@ namespace Tutorial04 {
                     /* No data yet, get more frames */
                     continue;
                 }
+                pts = is->audio_clock;
+                *pts_ptr = pts;
+                n = 2 * is->audio_ctx->channels;
+                is->audio_clock += (double) data_size /
+                                   (double) (n * is->audio_ctx->sample_rate);
                 /* We have data, return it and come back for more later */
                 return data_size;
             }
@@ -208,6 +242,10 @@ namespace Tutorial04 {
             }
             is->audio_pkt_data = pkt->data;
             is->audio_pkt_size = pkt->size;
+            /* if update, update the audio clock w/pts */
+            if (pkt->pts != AV_NOPTS_VALUE) {
+                is->audio_clock = av_q2d(is->audio_st->time_base) * pkt->pts;
+            }
         }
     }
 
@@ -215,11 +253,12 @@ namespace Tutorial04 {
 
         VideoState *is = (VideoState *) userdata;
         int len1, audio_size;
+        double pts;
 
         while (len > 0) {
             if (is->audio_buf_index >= is->audio_buf_size) {
                 /* We have already sent all our data; get more */
-                audio_size = audio_decode_frame(is, is->audio_buf, sizeof(is->audio_buf));
+                audio_size = audio_decode_frame(is, is->audio_buf, sizeof(is->audio_buf), &pts);
                 if (audio_size < 0) {
                     /* If error, output silence */
                     is->audio_buf_size = 1024;
@@ -247,7 +286,7 @@ namespace Tutorial04 {
         return 0; /* 0 means stop timer */
     }
 
-    /* schedule a video refresh in 'delay' ms */
+/* schedule a video refresh in 'delay' ms */
     static void schedule_refresh(VideoState *is, int delay) {
         SDL_AddTimer(delay, sdl_refresh_timer_cb, is);
     }
@@ -302,19 +341,46 @@ namespace Tutorial04 {
     void video_refresh_timer(void *userdata) {
 
         VideoState *is = (VideoState *) userdata;
+        VideoPicture *vp;
+        double actual_delay, delay, sync_threshold, ref_clock, diff;
 
         if (is->video_st) {
             if (is->pictq_size == 0) {
                 schedule_refresh(is, 1);
             } else {
-                /* Now, normally here goes a ton of code
-               about timing, etc. we're just going to
-               guess at a delay for now. You can
-               increase and decrease this value and hard code
-               the timing - but I don't suggest that ;)
-               We'll learn how to do it for real later.
-                */
-                schedule_refresh(is, 40);
+                vp = &is->pictq[is->pictq_rindex];
+
+                delay = vp->pts - is->frame_last_pts; /* the pts from last time */
+                if (delay <= 0 || delay >= 1.0) {
+                    /* if incorrect delay, use previous one */
+                    delay = is->frame_last_delay;
+                }
+                /* save for next time */
+                is->frame_last_delay = delay;
+                is->frame_last_pts = vp->pts;
+
+                /* update delay to sync to audio */
+                ref_clock = get_audio_clock(is);
+                diff = vp->pts - ref_clock;
+
+                /* Skip or repeat the frame. Take delay into account
+               FFPlay still doesn't "know if this is the best guess." */
+                sync_threshold = (delay > AV_SYNC_THRESHOLD) ? delay : AV_SYNC_THRESHOLD;
+                if (fabs(diff) < AV_NOSYNC_THRESHOLD) {
+                    if (diff <= -sync_threshold) {
+                        delay = 0;
+                    } else if (diff >= sync_threshold) {
+                        delay = 2 * delay;
+                    }
+                }
+                is->frame_timer += delay;
+                /* computer the REAL delay */
+                actual_delay = is->frame_timer - (av_gettime() / 1000000.0);
+                if (actual_delay < 0.010) {
+                    /* Really it should skip the picture instead */
+                    actual_delay = 0.010;
+                }
+                schedule_refresh(is, (int) (actual_delay * 1000 + 0.5));
 
                 /* show the picture! */
                 video_display(is);
@@ -364,7 +430,7 @@ namespace Tutorial04 {
         vp->uvPitch = is->video_ctx->width / 2;
     }
 
-    int queue_picture(VideoState *is, AVFrame *pFrame) {
+    int queue_picture(VideoState *is, AVFrame *pFrame, double pts) {
 
         VideoPicture *vp;
         AVPicture pict;
@@ -415,11 +481,31 @@ namespace Tutorial04 {
         return 0;
     }
 
+    double synchronize_video(VideoState *is, AVFrame *src_frame, double pts) {
+
+        double frame_delay;
+
+        if (pts != 0) {
+            /* if we have pts, set video clock to it */
+            is->video_clock = pts;
+        } else {
+            /* if we aren't given a pts, set it to the clock */
+            pts = is->video_clock;
+        }
+        /* update the video clock */
+        frame_delay = av_q2d(is->video_ctx->time_base);
+        /* if we are repeating a frame, adjust clock accordingly */
+        frame_delay += src_frame->repeat_pict * (frame_delay * 0.5);
+        is->video_clock += frame_delay;
+        return pts;
+    }
+
     int video_thread(void *arg) {
         VideoState *is = (VideoState *) arg;
         AVPacket pkt1, *packet = &pkt1;
         int frameFinished;
         AVFrame *pFrame;
+        double pts;
 
         pFrame = av_frame_alloc();
 
@@ -428,11 +514,20 @@ namespace Tutorial04 {
                 // means we quit getting packets
                 break;
             }
+            pts = 0;
+
             // Decode video frame
             avcodec_decode_video2(is->video_ctx, pFrame, &frameFinished, packet);
+
+            if ((pts = av_frame_get_best_effort_timestamp(pFrame)) == AV_NOPTS_VALUE) {
+                pts = 0;
+            }
+            pts *= av_q2d(is->video_st->time_base);
+
             // Did we get a video frame?
             if (frameFinished) {
-                if (queue_picture(is, pFrame) < 0) {
+                pts = synchronize_video(is, pFrame, pts);
+                if (queue_picture(is, pFrame, pts) < 0) {
                     break;
                 }
             }
@@ -468,10 +563,10 @@ namespace Tutorial04 {
         if (codecCtx->codec_type == AVMEDIA_TYPE_AUDIO) {
             // Set audio settings from codec info
             wanted_spec.freq = codecCtx->sample_rate;
-            wanted_spec.format = AUDIO_U8;
+            wanted_spec.format = AUDIO_S16SYS;
             wanted_spec.channels = codecCtx->channels;
             wanted_spec.silence = 0;
-            wanted_spec.samples = 4096;
+            wanted_spec.samples = SDL_AUDIO_BUFFER_SIZE;
             wanted_spec.callback = audio_callback;
             wanted_spec.userdata = is;
 
@@ -479,6 +574,7 @@ namespace Tutorial04 {
                 LOGE("SDL_OpenAudio: %s\n", SDL_GetError());
                 return -1;
             }
+            is->audio_hw_buf_size = spec.size;
         }
         if (avcodec_open2(codecCtx, codec, NULL) < 0) {
             LOGE("Unsupported codec!\n");
@@ -500,6 +596,10 @@ namespace Tutorial04 {
                 is->videoStream = stream_index;
                 is->video_st = pFormatCtx->streams[stream_index];
                 is->video_ctx = codecCtx;
+
+                is->frame_timer = (double) av_gettime() / 1000000.0;
+                is->frame_last_delay = 40e-3;
+
                 packet_queue_init(&is->videoq);
                 is->video_tid = SDL_CreateThread(video_thread, "video_thread", is);
                 is->sws_ctx = sws_getContext(is->video_ctx->width, is->video_ctx->height,
@@ -696,6 +796,6 @@ namespace Tutorial04 {
     }
 }
 
-extern C_LINKAGE DECLSPEC int tutorial04(int argc, char *argv[]) {
-    return Tutorial04::run(argc, argv);
+extern C_LINKAGE DECLSPEC int tutorial05(int argc, char *argv[]) {
+    return Tutorial05::run(argc, argv);
 }

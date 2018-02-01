@@ -12,7 +12,9 @@ import android.widget.Button;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
-    private Button btnDownload, btnTutorial02, btnTutorial03, btnTutorial04;
+    private Button btnDownload,
+            btnTutorial02, btnTutorial03, btnTutorial04,
+            btnTutorial05, btnTutorial06, btnTutorial07;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,6 +29,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnTutorial03.setOnClickListener(this);
         btnTutorial04 = findViewById(R.id.tutorial04_btn);
         btnTutorial04.setOnClickListener(this);
+        btnTutorial05 = findViewById(R.id.tutorial05_btn);
+        btnTutorial05.setOnClickListener(this);
+        btnTutorial06 = findViewById(R.id.tutorial06_btn);
+        btnTutorial06.setOnClickListener(this);
+        btnTutorial07 = findViewById(R.id.tutorial07_btn);
+        btnTutorial07.setOnClickListener(this);
 
 //        TextView tv = findViewById(R.id.sample_text);
 //        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
@@ -62,6 +70,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             startActivity(TutorialActivity.buildIntent(this, "tutorial03"));
         } else if (view == btnTutorial04) {
             startActivity(TutorialActivity.buildIntent(this, "tutorial04"));
+        } else if (view == btnTutorial05) {
+            startActivity(TutorialActivity.buildIntent(this, "tutorial05"));
+        } else if (view == btnTutorial06) {
+            startActivity(TutorialActivity.buildIntent(this, "tutorial06"));
+        } else if (view == btnTutorial07) {
+            startActivity(TutorialActivity.buildIntent(this, "tutorial07"));
         }
     }
 

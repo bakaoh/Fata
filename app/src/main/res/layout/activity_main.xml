@@ -33,6 +33,27 @@
         android:text="Tutorial 04: Spawning Threads"
         app:layout_constraintTop_toBottomOf="@id/tutorial03_btn"/>
 
+    <Button
+        android:id="@+id/tutorial05_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tutorial 05: Synching Video"
+        app:layout_constraintTop_toBottomOf="@id/tutorial04_btn"/>
+
+    <Button
+        android:id="@+id/tutorial06_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tutorial 06: Synching Audio"
+        app:layout_constraintTop_toBottomOf="@id/tutorial05_btn"/>
+
+    <Button
+        android:id="@+id/tutorial07_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tutorial 07: Seeking"
+        app:layout_constraintTop_toBottomOf="@id/tutorial06_btn"/>
+
     <TextView
         android:id="@+id/sample_text"
         android:layout_width="wrap_content"
