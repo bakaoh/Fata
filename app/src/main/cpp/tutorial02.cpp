@@ -1,3 +1,11 @@
+// tutorial02.c
+// A pedagogical video player that will stream through every video frame as fast as it can.
+//
+// Code based on FFplay, Copyright (c) 2003 Fabrice Bellard,
+// and a tutorial by Martin Bohme (boehme@inb.uni-luebeckREMOVETHIS.de)
+
+extern "C" {
+
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
@@ -5,21 +13,12 @@
 #include <SDL.h>
 #include <SDL_thread.h>
 
-
-#ifdef __MINGW32__
-#undef main /* Prevents SDL from overriding main() */
-#endif
-
 #include <stdio.h>
 
 #include <jni.h>
 #include <android/log.h>
 
-// compatibility with newer API
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55, 28, 1)
-#define av_frame_alloc avcodec_alloc_frame
-#define av_frame_free avcodec_free_frame
-#endif
+}
 
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "TUT02", __VA_ARGS__))
 
