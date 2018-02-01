@@ -6,20 +6,22 @@
 #include <SDL_thread.h>
 
 
-
 #ifdef __MINGW32__
 #undef main /* Prevents SDL from overriding main() */
 #endif
 
 #include <stdio.h>
 
+#include <jni.h>
+#include <android/log.h>
+
 // compatibility with newer API
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,28,1)
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55, 28, 1)
 #define av_frame_alloc avcodec_alloc_frame
 #define av_frame_free avcodec_free_frame
 #endif
 
-
+#define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "TUT02", __VA_ARGS__))
 
 extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
     AVFormatContext *pFormatCtx = NULL;
@@ -41,14 +43,14 @@ extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
     int uvPitch;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: test <file>\n");
+        LOGE("Usage: test <file>\n");
         exit(1);
     }
     // Register all formats and codecs
     av_register_all();
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {
-        fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());
+        LOGE("Could not initialize SDL - %s\n", SDL_GetError());
         exit(1);
     }
 
@@ -78,14 +80,14 @@ extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
     // Find the decoder for the video stream
     pCodec = avcodec_find_decoder(pCodecCtxOrig->codec_id);
     if (pCodec == NULL) {
-        fprintf(stderr, "Unsupported codec!\n");
+        LOGE("Unsupported codec!\n");
         return -1; // Codec not found
     }
 
     // Copy context
     pCodecCtx = avcodec_alloc_context3(pCodec);
     if (avcodec_copy_context(pCodecCtx, pCodecCtxOrig) != 0) {
-        fprintf(stderr, "Couldn't copy codec context");
+        LOGE("Couldn't copy codec context");
         return -1; // Error copying codec context
     }
 
@@ -107,12 +109,12 @@ extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
     );
 
     if (!screen) {
-        fprintf(stderr, "SDL: could not create window - exiting\n");
+        LOGE("SDL: could not create window - exiting\n");
         exit(1);
     }
     renderer = SDL_CreateRenderer(screen, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
-        fprintf(stderr, "SDL: could not create renderer - exiting\n");
+        LOGE("SDL: could not create renderer - exiting\n");
         exit(1);
     }
 
@@ -125,7 +127,7 @@ extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
             pCodecCtx->height
     );
     if (!texture) {
-        fprintf(stderr, "SDL: could not create texture - exiting\n");
+        LOGE("SDL: could not create texture - exiting\n");
         exit(1);
     }
 
@@ -141,11 +143,11 @@ extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
     // set up YV12 pixel array (12 bits per pixel)
     yPlaneSz = pCodecCtx->width * pCodecCtx->height;
     uvPlaneSz = pCodecCtx->width * pCodecCtx->height / 4;
-    yPlane = (Uint8*)malloc(yPlaneSz);
-    uPlane = (Uint8*)malloc(uvPlaneSz);
-    vPlane = (Uint8*)malloc(uvPlaneSz);
+    yPlane = (Uint8 *) malloc(yPlaneSz);
+    uPlane = (Uint8 *) malloc(uvPlaneSz);
+    vPlane = (Uint8 *) malloc(uvPlaneSz);
     if (!yPlane || !uPlane || !vPlane) {
-        fprintf(stderr, "Could not allocate pixel buffers - exiting\n");
+        LOGE("Could not allocate pixel buffers - exiting\n");
         exit(1);
     }
 
@@ -167,7 +169,7 @@ extern C_LINKAGE DECLSPEC int tutorial02(int argc, char *argv[]) {
                 pict.linesize[2] = uvPitch;
 
                 // Convert the image into YUV format that SDL uses
-                sws_scale(sws_ctx, (uint8_t const * const *) pFrame->data,
+                sws_scale(sws_ctx, (uint8_t const *const *) pFrame->data,
                           pFrame->linesize, 0, pCodecCtx->height, pict.data,
                           pict.linesize);
 
