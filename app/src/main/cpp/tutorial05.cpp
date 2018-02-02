@@ -11,18 +11,20 @@ extern "C" {
 #include <libswscale/swscale.h>
 #include <libavutil/avstring.h>
 #include <libavutil/time.h>
+#include <libavformat/avio.h>
+#include <libavutil/opt.h>
+#include <libswresample/swresample.h>
+
+}
 
 #include <SDL.h>
 #include <SDL_thread.h>
 
 #include <stdio.h>
-#include <assert.h>
 #include <math.h>
 
 #include <jni.h>
 #include <android/log.h>
-
-}
 
 #define SDL_AUDIO_BUFFER_SIZE 1024
 #define MAX_AUDIO_FRAME_SIZE 192000
@@ -94,14 +96,22 @@ namespace Tutorial05 {
 
         char filename[1024];
         int quit;
+
+        uint8_t audio_need_resample;
+        AVIOContext *io_context;
+
+        SwrContext *pSwrCtx;
+        uint8_t *pResampledOut;
+        int resample_lines;
+        uint64_t resample_size;
     } VideoState;
 
     SDL_Texture *texture;
     SDL_Window *screen;
     SDL_Renderer *renderer;
-    SDL_mutex *screen_mutex;
+    SDL_DisplayMode display_mode;
 
-/* Since we only have one decoding thread, the Big Struct
+    /* Since we only have one decoding thread, the Big Struct
    can be global in case we need it. */
     VideoState *global_video_state;
 
@@ -190,10 +200,58 @@ namespace Tutorial05 {
         return pts;
     }
 
-    int audio_decode_frame(VideoState *is, uint8_t *audio_buf, int buf_size, double *pts_ptr) {
+    long audio_tutorial_resample(VideoState *is, struct AVFrame *inframe) {
 
-        int len1, data_size = 0;
+        uint8_t **resample_input_bytes = (uint8_t **) inframe->extended_data;
+        int resample_nblen = 0;
+        long resample_long_bytes = 0;
+
+        if (is->pResampledOut == NULL || inframe->nb_samples > is->resample_size) {
+            is->resample_size = av_rescale_rnd(
+                    swr_get_delay(is->pSwrCtx, 44100) + inframe->nb_samples,
+                    44100,
+                    44100,
+                    AV_ROUND_UP
+            );
+
+            if (is->pResampledOut != NULL) {
+                av_free(is->pResampledOut);
+                is->pResampledOut = NULL;
+            }
+
+            av_samples_alloc(
+                    &is->pResampledOut, &is->resample_lines, 2, is->resample_size,
+                    AV_SAMPLE_FMT_S16, 0
+            );
+
+        }
+
+        // SWResample
+        resample_nblen = swr_convert(
+                is->pSwrCtx, (uint8_t **) &is->pResampledOut,
+                is->resample_size,
+                (const uint8_t **) resample_input_bytes, inframe->nb_samples
+        );
+
+        resample_long_bytes = av_samples_get_buffer_size(
+                NULL, 2, resample_nblen,
+                AV_SAMPLE_FMT_S16, 1
+        );
+
+        if (resample_nblen < 0) {
+            LOGE("reSample to another sample format failed!\n");
+            return -1;
+        }
+
+        return resample_long_bytes;
+    }
+
+    long audio_decode_frame(VideoState *is, double *pts_ptr) {
+        /* For example with wma audio package size can be
+           like 100 000 bytes */
+        long len1, data_size = 0;
         AVPacket *pkt = &is->audio_pkt;
+        long resample_size = 0;
         double pts;
         int n;
 
@@ -206,40 +264,66 @@ namespace Tutorial05 {
                     is->audio_pkt_size = 0;
                     break;
                 }
-                data_size = 0;
+
                 if (got_frame) {
-                    data_size = av_samples_get_buffer_size(NULL,
-                                                           is->audio_ctx->channels,
-                                                           is->audio_frame.nb_samples,
-                                                           is->audio_ctx->sample_fmt,
-                                                           1);
-                    assert(data_size <= buf_size);
-                    memcpy(audio_buf, is->audio_frame.data[0], data_size);
+                    data_size = av_samples_get_buffer_size(
+                            NULL,
+                            is->audio_st->codec->channels,
+                            is->audio_frame.nb_samples,
+                            is->audio_st->codec->sample_fmt,
+                            1
+                    );
+
+                    if (data_size <= 0) {
+                        /* No data yet, get more frames */
+                        continue;
+                    }
+
+                    if (is->audio_need_resample == 1) {
+                        /* We need to resample data from S16P or FLTP to
+                           S16 so size of data can be diffrent than in original
+                           FLTP is 32 bits and S16P is as name said 15 bits
+                           Resampled 32 is half size... */
+                        resample_size = audio_tutorial_resample(is, &is->audio_frame);
+
+                        if (resample_size > 0) {
+                            memcpy(is->audio_buf, is->pResampledOut, resample_size);
+                            memset(is->pResampledOut, 0x00, resample_size);
+                        }
+
+                    } else {
+                        memcpy(is->audio_buf, is->audio_frame.data[0], data_size);
+                    }
                 }
+
                 is->audio_pkt_data += len1;
                 is->audio_pkt_size -= len1;
-                if (data_size <= 0) {
-                    /* No data yet, get more frames */
-                    continue;
+
+                /* If you just return original data_size you will suffer
+                   for clicks because you don't have that much data in
+                   queue incoming so return resampled size. */
+                if (is->audio_need_resample == 1) {
+                    return resample_size;
+
+                } else {
+                    /* We have data, return it and come back for more later */
+                    return data_size;
                 }
-                pts = is->audio_clock;
-                *pts_ptr = pts;
-                n = 2 * is->audio_ctx->channels;
-                is->audio_clock += (double) data_size /
-                                   (double) (n * is->audio_ctx->sample_rate);
-                /* We have data, return it and come back for more later */
-                return data_size;
             }
-            if (pkt->data)
+
+            if (pkt->data) {
                 av_free_packet(pkt);
+            }
 
             if (is->quit) {
                 return -1;
             }
+
             /* next packet */
             if (packet_queue_get(&is->audioq, pkt, 1) < 0) {
                 return -1;
             }
+
             is->audio_pkt_data = pkt->data;
             is->audio_pkt_size = pkt->size;
             /* if update, update the audio clock w/pts */
@@ -252,13 +336,14 @@ namespace Tutorial05 {
     void audio_callback(void *userdata, Uint8 *stream, int len) {
 
         VideoState *is = (VideoState *) userdata;
-        int len1, audio_size;
+        long len1, audio_size;
         double pts;
 
         while (len > 0) {
             if (is->audio_buf_index >= is->audio_buf_size) {
                 /* We have already sent all our data; get more */
-                audio_size = audio_decode_frame(is, is->audio_buf, sizeof(is->audio_buf), &pts);
+                audio_size = audio_decode_frame(is, &pts);
+
                 if (audio_size < 0) {
                     /* If error, output silence */
                     is->audio_buf_size = 1024;
@@ -266,11 +351,15 @@ namespace Tutorial05 {
                 } else {
                     is->audio_buf_size = audio_size;
                 }
+
                 is->audio_buf_index = 0;
             }
+
             len1 = is->audio_buf_size - is->audio_buf_index;
-            if (len1 > len)
+            if (len1 > len) {
                 len1 = len;
+            }
+
             memcpy(stream, (uint8_t *) is->audio_buf + is->audio_buf_index, len1);
             len -= len1;
             stream += len1;
@@ -286,7 +375,7 @@ namespace Tutorial05 {
         return 0; /* 0 means stop timer */
     }
 
-/* schedule a video refresh in 'delay' ms */
+    /* schedule a video refresh in 'delay' ms */
     static void schedule_refresh(VideoState *is, int delay) {
         SDL_AddTimer(delay, sdl_refresh_timer_cb, is);
     }
@@ -296,7 +385,6 @@ namespace Tutorial05 {
         SDL_Rect rect;
         VideoPicture *vp;
         float aspect_ratio;
-        int w, h, x, y;
 
         vp = &is->pictq[is->pictq_rindex];
         if (is->video_ctx->sample_aspect_ratio.num == 0) {
@@ -309,14 +397,14 @@ namespace Tutorial05 {
             aspect_ratio = (float) is->video_ctx->width /
                            (float) is->video_ctx->height;
         }
-        h = 1080;
-        w = ((int) rint(h * aspect_ratio)) & -3;
-        if (w > 1920) {
-            w = 1920;
-            h = ((int) rint(w / aspect_ratio)) & -3;
+        rect.h = display_mode.h;
+        rect.w = ((int) rint(rect.h * aspect_ratio)) & -3;
+        if (rect.w > display_mode.w) {
+            rect.w = display_mode.w;
+            rect.h = ((int) rint(rect.w / aspect_ratio)) & -3;
         }
-        x = (1920 - w) / 2;
-        y = (1080 - h) / 2;
+        rect.x = (display_mode.w - rect.w) / 2;
+        rect.y = (display_mode.h - rect.h) / 2;
 
         SDL_UpdateYUVTexture(
                 texture,
@@ -330,10 +418,6 @@ namespace Tutorial05 {
         );
 
         SDL_RenderClear(renderer);
-        rect.x = x;
-        rect.y = y;
-        rect.w = w;
-        rect.h = h;
         SDL_RenderCopy(renderer, texture, NULL, &rect);
         SDL_RenderPresent(renderer);
     }
@@ -466,9 +550,11 @@ namespace Tutorial05 {
         pict.linesize[2] = vp->uvPitch;
 
         // Convert the image into YUV format that SDL uses
-        sws_scale(is->sws_ctx, (uint8_t const *const *) pFrame->data,
-                  pFrame->linesize, 0, is->video_ctx->height,
-                  pict.data, pict.linesize);
+        sws_scale(
+                is->sws_ctx, (uint8_t const *const *) pFrame->data,
+                pFrame->linesize, 0, is->video_ctx->height,
+                pict.data, pict.linesize
+        );
 
         /* now we inform our display thread that we have a pic ready */
         if (++is->pictq_windex == VIDEO_PICTURE_QUEUE_SIZE) {
@@ -542,23 +628,15 @@ namespace Tutorial05 {
         AVFormatContext *pFormatCtx = is->pFormatCtx;
         AVCodecContext *codecCtx = NULL;
         AVCodec *codec = NULL;
+        AVDictionary *optionsDict = NULL;
         SDL_AudioSpec wanted_spec, spec;
 
         if (stream_index < 0 || stream_index >= pFormatCtx->nb_streams) {
             return -1;
         }
 
-        codec = avcodec_find_decoder(pFormatCtx->streams[stream_index]->codec->codec_id);
-        if (!codec) {
-            LOGE("Unsupported codec!\n");
-            return -1;
-        }
-
-        codecCtx = avcodec_alloc_context3(codec);
-        if (avcodec_copy_context(codecCtx, pFormatCtx->streams[stream_index]->codec) != 0) {
-            LOGE("Couldn't copy codec context");
-            return -1; // Error copying codec context
-        }
+        // Get a pointer to the codec context for the video stream
+        codecCtx = pFormatCtx->streams[stream_index]->codec;
 
         if (codecCtx->codec_type == AVMEDIA_TYPE_AUDIO) {
             // Set audio settings from codec info
@@ -576,7 +654,10 @@ namespace Tutorial05 {
             }
             is->audio_hw_buf_size = spec.size;
         }
-        if (avcodec_open2(codecCtx, codec, NULL) < 0) {
+
+        codec = avcodec_find_decoder(codecCtx->codec_id);
+
+        if (!codec || (avcodec_open2(codecCtx, codec, &optionsDict) < 0)) {
             LOGE("Unsupported codec!\n");
             return -1;
         }
@@ -602,10 +683,10 @@ namespace Tutorial05 {
 
                 packet_queue_init(&is->videoq);
                 is->video_tid = SDL_CreateThread(video_thread, "video_thread", is);
-                is->sws_ctx = sws_getContext(is->video_ctx->width, is->video_ctx->height,
-                                             is->video_ctx->pix_fmt, is->video_ctx->width,
-                                             is->video_ctx->height, AV_PIX_FMT_YUV420P,
-                                             SWS_BILINEAR, NULL, NULL, NULL
+                is->sws_ctx = sws_getContext(
+                        is->video_ctx->width, is->video_ctx->height, is->video_ctx->pix_fmt,
+                        is->video_ctx->width, is->video_ctx->height, AV_PIX_FMT_YUV420P,
+                        SWS_BILINEAR, NULL, NULL, NULL
                 );
                 break;
             default:
@@ -614,30 +695,48 @@ namespace Tutorial05 {
         return 0;
     }
 
+    int decode_interrupt_cb(void *opaque) {
+        return (global_video_state && global_video_state->quit);
+    }
+
     int decode_thread(void *arg) {
 
         VideoState *is = (VideoState *) arg;
-        AVFormatContext *pFormatCtx;
+        AVFormatContext *pFormatCtx = NULL;
         AVPacket pkt1, *packet = &pkt1;
 
         int video_index = -1;
         int audio_index = -1;
         int i;
 
+        AVDictionary *io_dict = NULL;
+        AVIOInterruptCB callback;
+
         is->videoStream = -1;
         is->audioStream = -1;
+        is->audio_need_resample = 0;
 
         global_video_state = is;
+        // will interrupt blocking functions if we quit!
+        callback.callback = decode_interrupt_cb;
+        callback.opaque = is;
+
+        if (avio_open2(&is->io_context, is->filename, 0, &callback, &io_dict)) {
+            LOGE("Unable to open I/O for %s\n", is->filename);
+            return -1;
+        }
 
         // Open video file
-        if (avformat_open_input(&pFormatCtx, is->filename, NULL, NULL) != 0)
-            return -1; // Couldn't open file
+        if (avformat_open_input(&pFormatCtx, is->filename, NULL, NULL) != 0) {
+            return -1;    // Couldn't open file
+        }
 
         is->pFormatCtx = pFormatCtx;
 
         // Retrieve stream information
-        if (avformat_find_stream_info(pFormatCtx, NULL) < 0)
-            return -1; // Couldn't find stream information
+        if (avformat_find_stream_info(pFormatCtx, NULL) < 0) {
+            return -1;    // Couldn't find stream information
+        }
 
         // Dump information about file onto standard error
         av_dump_format(pFormatCtx, 0, is->filename, 0);
@@ -661,12 +760,46 @@ namespace Tutorial05 {
             stream_component_open(is, video_index);
         }
 
-        if (is->videoStream < 0 || is->audioStream < 0) {
+        if (is->videoStream < 0 && is->audioStream < 0) {
             LOGE("%s: could not open codecs\n", is->filename);
             goto fail;
         }
 
+        if (audio_index >= 0 && is->audio_ctx->sample_fmt != AV_SAMPLE_FMT_S16) {
+            is->audio_need_resample = 1;
+            is->pResampledOut = NULL;
+            is->pSwrCtx = swr_alloc();
+
+            // Some MP3/WAV don't tell this so make assumtion that
+            // They are stereo not 5.1
+            if (is->audio_ctx->channel_layout == 0 && is->audio_ctx->channels == 2) {
+                is->audio_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
+            } else if (is->audio_ctx->channel_layout == 0 && is->audio_ctx->channels == 1) {
+                is->audio_ctx->channel_layout = AV_CH_LAYOUT_MONO;
+            } else if (is->audio_ctx->channel_layout == 0 && is->audio_ctx->channels == 0) {
+                is->audio_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
+                is->audio_ctx->channels = 2;
+            }
+
+            av_opt_set_int(is->pSwrCtx, "in_channel_layout", is->audio_ctx->channel_layout, 0);
+            av_opt_set_int(is->pSwrCtx, "in_sample_fmt", is->audio_ctx->sample_fmt, 0);
+            av_opt_set_int(is->pSwrCtx, "in_sample_rate", is->audio_ctx->sample_rate, 0);
+            av_opt_set_int(is->pSwrCtx, "out_channel_layout", AV_CH_LAYOUT_STEREO, 0);
+            av_opt_set_int(is->pSwrCtx, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
+            av_opt_set_int(is->pSwrCtx, "out_sample_rate", 44100, 0);
+
+            if (swr_init(is->pSwrCtx) < 0) {
+                LOGE(" ERROR!! From Samplert: %d Hz Sample format: %s\n",
+                     is->audio_ctx->sample_rate,
+                     av_get_sample_fmt_name(is->audio_ctx->sample_fmt));
+                LOGE("         To 44100 Sample format: s16\n");
+                is->audio_need_resample = 0;
+                is->pSwrCtx = NULL;;
+            }
+        }
+
         // main decode loop
+        schedule_refresh(is, 40);
 
         for (;;) {
             if (is->quit) {
@@ -713,9 +846,7 @@ namespace Tutorial05 {
     int run(int argc, char *argv[]) {
 
         SDL_Event event;
-        VideoState *is;
-
-        is = (VideoState *) av_mallocz(sizeof(VideoState));
+        VideoState *is = (VideoState *) av_mallocz(sizeof(VideoState));
 
         if (argc < 2) {
             LOGE("Usage: test <file>\n");
@@ -729,12 +860,13 @@ namespace Tutorial05 {
             exit(1);
         }
 
+        SDL_GetCurrentDisplayMode(0, &display_mode);
         // Make a screen to put our video
         screen = SDL_CreateWindow(
                 "FFmpeg Tutorial",
                 SDL_WINDOWPOS_UNDEFINED,
                 SDL_WINDOWPOS_UNDEFINED,
-                1920, 1080,
+                display_mode.w, display_mode.h,
                 SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
         );
         if (!screen) {
@@ -742,33 +874,19 @@ namespace Tutorial05 {
             exit(1);
         }
 
-        renderer = SDL_CreateRenderer(screen, -1,
-                                      SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        renderer = SDL_CreateRenderer(
+                screen, -1,
+                SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+        );
         if (!renderer) {
             LOGE("SDL: could not create renderer - exiting\n");
             exit(1);
         }
 
-        texture = SDL_CreateTexture(
-                renderer,
-                SDL_PIXELFORMAT_YV12,
-                SDL_TEXTUREACCESS_STREAMING,
-                1920, 1080
-        );
-        if (!texture) {
-            fprintf(stderr, "SDL: could not create texture - exiting\n");
-            exit(1);
-        }
-
-        screen_mutex = SDL_CreateMutex();
-
         av_strlcpy(is->filename, argv[1], sizeof(is->filename));
 
         is->pictq_mutex = SDL_CreateMutex();
         is->pictq_cond = SDL_CreateCond();
-
-        schedule_refresh(is, 40);
-
         is->parse_tid = SDL_CreateThread(decode_thread, "decode_thread", is);
         if (!is->parse_tid) {
             av_free(is);
@@ -787,6 +905,19 @@ namespace Tutorial05 {
                     SDL_Quit();
                     return 0;
                 case FF_REFRESH_EVENT:
+                    if (!texture) {
+                        texture = SDL_CreateTexture(
+                                renderer,
+                                SDL_PIXELFORMAT_YV12,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                is->video_ctx->width, is->video_ctx->height
+                        );
+                    }
+                    if (!texture) {
+                        LOGE("SDL: could not create texture - exiting\n");
+                        exit(1);
+                    }
+
                     video_refresh_timer(event.user.data1);
                     break;
                 default:
