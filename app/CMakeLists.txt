@@ -18,6 +18,7 @@ add_library( native-lib SHARED
              src/main/cpp/tutorial03.cpp
              src/main/cpp/tutorial04.cpp
              src/main/cpp/tutorial05.cpp
+             src/main/cpp/tutorial06.cpp
              src/main/cpp/native-lib.cpp )
 
 target_include_directories(native-lib PRIVATE
