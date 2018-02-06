@@ -9,10 +9,12 @@ import org.libsdl.app.SDLActivity;
 public class TutorialActivity extends SDLActivity {
 
     private static final String MAIN_FUNCTION = "main-function";
+    private static final String VIDEO_FILE = "video-file";
 
-    public static Intent buildIntent(Context context, String mainFunction) {
+    public static Intent buildIntent(Context context, String mainFunction, String videoFile) {
         return new Intent(context, TutorialActivity.class)
-                .putExtra(MAIN_FUNCTION, mainFunction);
+                .putExtra(MAIN_FUNCTION, mainFunction)
+                .putExtra(VIDEO_FILE, videoFile);
     }
 
     protected String getMainFunction() {
@@ -20,6 +22,6 @@ public class TutorialActivity extends SDLActivity {
     }
 
     protected String[] getArguments() {
-        return new String[]{Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4"};
+        return new String[]{getIntent().getStringExtra(VIDEO_FILE)};
     }
 }

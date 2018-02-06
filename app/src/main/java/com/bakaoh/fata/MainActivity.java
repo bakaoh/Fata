@@ -3,18 +3,25 @@ package com.bakaoh.fata;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.Toast;
+
+import java.io.File;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
+    private String downloadUrl = "http://128.199.206.130/file/small_bunny_1080p_60fps.mp4";
+    private String fileName = "bunny_1080p_60fps.mp4";
+    private String videoFile = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) + "/" + fileName;
+
     private Button btnDownload,
             btnTutorial02, btnTutorial03, btnTutorial04,
-            btnTutorial05, btnTutorial06, btnTutorial07;
+            btnTutorial05, btnTutorial06, btnTutorial07,
+            btnTest01;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,22 +42,16 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnTutorial06.setOnClickListener(this);
         btnTutorial07 = findViewById(R.id.tutorial07_btn);
         btnTutorial07.setOnClickListener(this);
-
-//        TextView tv = findViewById(R.id.sample_text);
-//        String input = Environment.getExternalStorageDirectory() + "/fata/small_bunny_1080p_60fps.mp4";
-//        String output = Environment.getExternalStorageDirectory() + "/fata";
-//        tv.setText("Result: " + chapter0(input, output));
+        btnTest01 = findViewById(R.id.test01_btn);
+        btnTest01.setOnClickListener(this);
     }
 
     private void download(String url, String outputFile) {
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
         request.setDescription("Fata: Downloading test video");
         request.setTitle(outputFile);
-        // in order for this if to run, you must use the android 3.2 to compile your app
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-            request.allowScanningByMediaScanner();
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        }
+        request.allowScanningByMediaScanner();
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, outputFile);
 
         // get download service and enqueue file
@@ -60,34 +61,29 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     @Override
     public void onClick(View view) {
+        File file = new File(videoFile);
         if (view == btnDownload) {
-            String url = "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_60fps_normal.mp4";
-            String outputFile = "bunny_1080p_60fps.mp4";
-            download(url, outputFile);
+            if (file.exists()) {
+                Toast.makeText(this, "Test video downloaded", Toast.LENGTH_LONG).show();
+            } else {
+                download(downloadUrl, fileName);
+            }
+        } else if (!file.exists()) {
+            Toast.makeText(this, "Test video not found", Toast.LENGTH_LONG).show();
         } else if (view == btnTutorial02) {
-            startActivity(TutorialActivity.buildIntent(this, "tutorial02"));
+            startActivity(TutorialActivity.buildIntent(this, "tutorial02", videoFile));
         } else if (view == btnTutorial03) {
-            startActivity(TutorialActivity.buildIntent(this, "tutorial03"));
+            startActivity(TutorialActivity.buildIntent(this, "tutorial03", videoFile));
         } else if (view == btnTutorial04) {
-            startActivity(TutorialActivity.buildIntent(this, "tutorial04"));
+            startActivity(TutorialActivity.buildIntent(this, "tutorial04", videoFile));
         } else if (view == btnTutorial05) {
-            startActivity(TutorialActivity.buildIntent(this, "tutorial05"));
+            startActivity(TutorialActivity.buildIntent(this, "tutorial05", videoFile));
         } else if (view == btnTutorial06) {
-            startActivity(TutorialActivity.buildIntent(this, "tutorial06"));
+            startActivity(TutorialActivity.buildIntent(this, "tutorial06", videoFile));
         } else if (view == btnTutorial07) {
-            startActivity(TutorialActivity.buildIntent(this, "tutorial07"));
+            startActivity(TutorialActivity.buildIntent(this, "tutorial07", videoFile));
+        } else if (view == btnTest01) {
+            startActivity(NativeRenderActivity.buildIntent(this, videoFile));
         }
     }
-
-    static {
-        System.loadLibrary("native-lib");
-    }
-
-    /**
-     * This hello world actually won't show the message "hello world" in the terminal 👅
-     * Instead we're going to print out information about the video,
-     * things like its format (container), duration, resolution, audio channels
-     * and, in the end, we'll decode some frames and save them as image files.
-     */
-    public native int chapter0(String inputFile, String outputFolder);
 }

@@ -12,11 +12,13 @@ extern "C" {
 
 #include <jni.h>
 #include <android/log.h>
+#include <android/native_window_jni.h>
 
 #define logging(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "fata", __VA_ARGS__))
 
 int hello_world(const char *, const char *);
 
+void render_surface(const char *, const ANativeWindow *);
 
 #ifdef __cplusplus
 }
