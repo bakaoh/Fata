@@ -15,6 +15,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
 add_library( native-lib SHARED
              src/main/cpp/0_hello_world.c
              src/main/cpp/1_render_surface.c
+             src/main/cpp/tutorial01.cpp
              src/main/cpp/tutorial02.cpp
              src/main/cpp/tutorial03.cpp
              src/main/cpp/tutorial04.cpp

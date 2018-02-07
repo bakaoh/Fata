@@ -3,6 +3,7 @@ package com.bakaoh.fata;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -16,10 +17,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private String downloadUrl = "http://128.199.206.130/file/small_bunny_1080p_60fps.mp4";
     private String fileName = "bunny_1080p_60fps.mp4";
-    private String videoFile = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) + "/" + fileName;
+    private String downloadFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
+    private String videoFile = downloadFolder + "/" + fileName;
 
     private Button btnDownload,
-            btnTutorial02, btnTutorial03, btnTutorial04,
+            btnTutorial01, btnTutorial02, btnTutorial03, btnTutorial04,
             btnTutorial05, btnTutorial06, btnTutorial07,
             btnTest01;
 
@@ -30,6 +32,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         btnDownload = findViewById(R.id.download_btn);
         btnDownload.setOnClickListener(this);
+        btnTutorial01 = findViewById(R.id.tutorial01_btn);
+        btnTutorial01.setOnClickListener(this);
         btnTutorial02 = findViewById(R.id.tutorial02_btn);
         btnTutorial02.setOnClickListener(this);
         btnTutorial03 = findViewById(R.id.tutorial03_btn);
@@ -64,12 +68,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         File file = new File(videoFile);
         if (view == btnDownload) {
             if (file.exists()) {
-                Toast.makeText(this, "Test video downloaded", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Test video downloaded", Toast.LENGTH_SHORT).show();
             } else {
                 download(downloadUrl, fileName);
             }
         } else if (!file.exists()) {
-            Toast.makeText(this, "Test video not found", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Test video not found", Toast.LENGTH_SHORT).show();
+        } else if (view == btnTutorial01) {
+            new Tutorial01().execute(videoFile, downloadFolder);
         } else if (view == btnTutorial02) {
             startActivity(TutorialActivity.buildIntent(this, "tutorial02", videoFile));
         } else if (view == btnTutorial03) {
@@ -84,6 +90,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             startActivity(TutorialActivity.buildIntent(this, "tutorial07", videoFile));
         } else if (view == btnTest01) {
             startActivity(NativeRenderActivity.buildIntent(this, videoFile));
+        }
+    }
+
+    private class Tutorial01 extends AsyncTask<String, Void, String> {
+
+        @Override
+        protected String doInBackground(String... params) {
+            return NativeHelper.makingScreencaps(params[0], params[1]);
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            Toast.makeText(MainActivity.this, result, Toast.LENGTH_SHORT).show();
         }
     }
 }

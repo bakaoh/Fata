@@ -10,6 +10,8 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 
+}
+
 #include <SDL.h>
 #include <SDL_thread.h>
 
@@ -17,8 +19,6 @@ extern "C" {
 
 #include <jni.h>
 #include <android/log.h>
-
-}
 
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "TUT02", __VA_ARGS__))
 

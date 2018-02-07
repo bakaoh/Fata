@@ -20,6 +20,11 @@ public class NativeHelper {
      */
     public static native int helloWorld(String inputFile, String outputFolder);
 
+    /**
+     * write the first five frames from inputFile to outputFolder in PPM format
+     */
+    public static native String makingScreencaps(String inputFile, String outputFolder);
+
     public static native void renderSurface(String inputFile, Surface surface);
 
 }

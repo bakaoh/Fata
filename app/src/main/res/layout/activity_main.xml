@@ -13,11 +13,18 @@
         android:text="Download test video"/>
 
     <Button
+        android:id="@+id/tutorial01_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tutorial 01: Making Screencaps"
+        app:layout_constraintTop_toBottomOf="@id/download_btn"/>
+
+    <Button
         android:id="@+id/tutorial02_btn"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Tutorial 02: Outputting to the Screen"
-        app:layout_constraintTop_toBottomOf="@id/download_btn"/>
+        app:layout_constraintTop_toBottomOf="@id/tutorial01_btn"/>
 
     <Button
         android:id="@+id/tutorial03_btn"

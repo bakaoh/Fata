@@ -18,6 +18,8 @@ extern "C" {
 
 int hello_world(const char *, const char *);
 
+const char *making_screencaps(const char *, const char *);
+
 void render_surface(const char *, const ANativeWindow *);
 
 #ifdef __cplusplus
